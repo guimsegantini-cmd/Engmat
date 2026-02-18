@@ -8,7 +8,8 @@ import {
   CloudUpload,
   RefreshCw,
   CheckCircle2,
-  WifiOff
+  WifiOff,
+  CloudOff
 } from 'lucide-react';
 import { auth, db, isFirebaseConfigured } from './firebase';
 import { onAuthStateChanged } from "firebase/auth";
@@ -52,7 +53,7 @@ const App: React.FC = () => {
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [config, setConfig] = useState<AppConfig>(INITIAL_CONFIG);
   const [dbError, setDbError] = useState<string | null>(null);
-  const [syncStatus, setSyncStatus] = useState<'syncing' | 'synced' | 'offline'>('syncing');
+  const [syncStatus, setSyncStatus] = useState<'syncing' | 'synced' | 'error' | 'offline'>('syncing');
   
   const [prospects, setProspects] = useState<Prospect[]>([]);
   const [orders, setOrders] = useState<Order[]>([]);
@@ -81,11 +82,13 @@ const App: React.FC = () => {
     if (!user || !isFirebaseConfigured()) return;
 
     const handleFirestoreError = (error: any) => {
-      console.error("Firestore Listener Error:", error);
+      console.error("Firestore Error:", error);
       if (error.code === 'not-found' || error.message.includes('not exist')) {
-        setDbError("O banco de dados '(default)' não foi encontrado. Verifique se ele foi criado como 'Modo Nativo' no console.");
+        setDbError("ERRO CRÍTICO: O banco de dados não foi encontrado. Você PRECISA criar o Firestore Database no Console do Firebase para salvar seus dados.");
+        setSyncStatus('error');
       } else if (error.code === 'permission-denied') {
-        setDbError("ACESSO NEGADO: Suas 'Regras de Segurança' no Firebase Console estão bloqueando a leitura/escrita. Altere a aba 'Rules' para permitir acesso.");
+        setDbError("ACESSO NEGADO: Verifique as Regras de Segurança (Rules) do seu Firestore no Console.");
+        setSyncStatus('error');
       } else {
         setSyncStatus('offline');
       }
@@ -93,46 +96,44 @@ const App: React.FC = () => {
 
     setSyncStatus('syncing');
 
+    // Listener de Prospecções
     const unsubProspects = onSnapshot(collection(db, "prospects"), (snapshot) => {
-      setDbError(null);
       setSyncStatus('synced');
-      const data = snapshot.docs.map(doc => {
-        const d = doc.data();
-        return { 
-          id: doc.id, 
-          ...d,
-          history: Array.isArray(d.history) ? d.history : [],
-          contacts: Array.isArray(d.contacts) ? d.contacts : []
-        } as Prospect;
-      });
+      setDbError(null);
+      const data = snapshot.docs.map(doc => ({
+        id: doc.id, 
+        ...doc.data(),
+        history: Array.isArray(doc.data().history) ? doc.data().history : [],
+        contacts: Array.isArray(doc.data().contacts) ? doc.data().contacts : []
+      } as Prospect));
       setProspects(data);
     }, handleFirestoreError);
 
+    // Listener de Pedidos
     const unsubOrders = onSnapshot(collection(db, "orders"), (snapshot) => {
       setSyncStatus('synced');
-      const data = snapshot.docs.map(doc => {
-        const d = doc.data();
-        return { 
-          id: doc.id, 
-          ...d,
-          history: Array.isArray(d.history) ? d.history : [],
-          contacts: Array.isArray(d.contacts) ? d.contacts : []
-        } as Order;
-      });
+      const data = snapshot.docs.map(doc => ({
+        id: doc.id, 
+        ...doc.data(),
+        history: Array.isArray(doc.data().history) ? doc.data().history : [],
+        contacts: Array.isArray(doc.data().contacts) ? doc.data().contacts : []
+      } as Order));
       setOrders(data);
     }, handleFirestoreError);
 
+    // Listener de Tarefas
     const unsubTasks = onSnapshot(collection(db, "tasks"), (snapshot) => {
       setSyncStatus('synced');
       const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Task));
       setTasks(data);
     }, handleFirestoreError);
 
+    // Listener de Configurações
     const unsubConfig = onSnapshot(doc(db, "config", "system"), async (snapshot) => {
       if (snapshot.exists()) {
         setConfig(snapshot.data() as AppConfig);
       } else {
-        try { await setDoc(doc(db, "config", "system"), INITIAL_CONFIG); } catch (e) { }
+        try { await setDoc(doc(db, "config", "system"), INITIAL_CONFIG); } catch (e) {}
       }
     }, handleFirestoreError);
 
@@ -169,13 +170,11 @@ const App: React.FC = () => {
         <div className="w-24 h-24 bg-red-500/10 rounded-[32px] flex items-center justify-center text-red-500 mb-8 border border-red-500/20">
           <AlertTriangle size={48} />
         </div>
-        <h2 className="text-3xl font-black text-white uppercase mb-4 tracking-tighter">Problema no Servidor</h2>
+        <h2 className="text-3xl font-black text-white uppercase mb-4 tracking-tighter">Erro de Banco de Dados</h2>
         <p className="text-gray-400 max-w-md mb-10 leading-relaxed font-medium">{dbError}</p>
-        <div className="flex gap-4">
-          <button onClick={() => window.location.reload()} className="bg-brand-orange text-black py-4 px-10 rounded-2xl font-black uppercase text-xs tracking-widest flex items-center gap-2">
-            <RefreshCw size={16} /> Tentar Reconectar
-          </button>
-        </div>
+        <button onClick={() => window.location.reload()} className="bg-brand-orange text-black py-4 px-10 rounded-2xl font-black uppercase text-xs tracking-widest flex items-center gap-2">
+          <RefreshCw size={16} /> Recarregar Sistema
+        </button>
       </div>
     );
   }
@@ -203,15 +202,18 @@ const App: React.FC = () => {
                 {currentView === 'prospecting' ? 'Prospecção' : currentView === 'orders' ? 'Faturamento' : currentView === 'tasks' ? 'Tarefas' : currentView === 'settings' ? 'Configurações' : 'Dashboard'}
               </h1>
               
-              <div className="flex items-center gap-2 px-3 py-1.5 bg-brand-dark rounded-full border border-brand-border">
+              <div className="flex items-center gap-2 px-3 py-1 bg-brand-dark rounded-full border border-brand-border">
                 {syncStatus === 'syncing' && (
                   <><Loader2 size={12} className="text-brand-orange animate-spin" /><span className="text-[8px] font-black text-brand-orange uppercase">Sincronizando...</span></>
                 )}
                 {syncStatus === 'synced' && (
-                  <><CheckCircle2 size={12} className="text-green-500" /><span className="text-[8px] font-black text-green-500 uppercase">Dados em Nuvem</span></>
+                  <><CheckCircle2 size={12} className="text-green-500" /><span className="text-[8px] font-black text-green-500 uppercase">Sincronizado na Nuvem</span></>
                 )}
                 {syncStatus === 'offline' && (
-                  <><WifiOff size={12} className="text-red-500" /><span className="text-[8px] font-black text-red-500 uppercase">Modo Offline</span></>
+                  <><CloudOff size={12} className="text-yellow-500" /><span className="text-[8px] font-black text-yellow-500 uppercase">Somente Local (Offline)</span></>
+                )}
+                {syncStatus === 'error' && (
+                  <><AlertTriangle size={12} className="text-red-500" /><span className="text-[8px] font-black text-red-500 uppercase">Erro de Banco</span></>
                 )}
               </div>
             </div>
