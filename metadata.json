@@ -1,0 +1,9 @@
+{
+  "name": "ENGMAT - O elo entre o fornecedor e o construtor",
+  "description": "Sistema completo de gestão para representantes comerciais da construção civil, integrando prospecção, pedidos e tarefas.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone",
+    "geolocation"
+  ]
+}
