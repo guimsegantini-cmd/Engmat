@@ -20,14 +20,12 @@ const app = initializeApp(firebaseConfig);
 export const db = getFirestore(app);
 export const auth = getAuth(app);
 
-// Ativa persistência offline para evitar perda de dados em refresh
+// Ativa persistência offline (opcional, mas ajuda em conexões instáveis)
 if (typeof window !== "undefined") {
   enableIndexedDbPersistence(db).catch((err) => {
     if (err.code === 'failed-precondition') {
-      // Provavelmente múltiplas abas abertas
       console.warn("Persistência do Firestore falhou: Múltiplas abas abertas.");
     } else if (err.code === 'unimplemented') {
-      // Navegador não suporta
       console.warn("Persistência do Firestore não suportada neste navegador.");
     }
   });
